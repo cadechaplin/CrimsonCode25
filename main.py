@@ -2,6 +2,7 @@ from mediapipe import solutions
 from mediapipe.framework.formats import landmark_pb2
 import numpy as np
 import cv2
+import platform
 
 # Initialize MediaPipe Pose solution
 mp_pose = solutions.pose
@@ -10,8 +11,11 @@ pose = mp_pose.Pose()
 # Initialize MediaPipe drawing solution
 mp_drawing = solutions.drawing_utils
 
-# Open the camera
-cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+# Open the camera based on operating system
+if platform.system() == 'Windows':
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Windows-specific
+else:
+    cap = cv2.VideoCapture(0)  # macOS and other platforms
 
 # Flag to track window state
 window_closed = False
