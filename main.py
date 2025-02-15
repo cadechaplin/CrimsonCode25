@@ -19,6 +19,7 @@ else:
 
 # Flag to track window state
 window_closed = False
+window_name = 'MediaPipe Pose'
 
 while cap.isOpened() and not window_closed:
     ret, frame = cap.read()
@@ -37,13 +38,21 @@ while cap.isOpened() and not window_closed:
         mp_drawing.draw_landmarks(frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS)
 
     # Display the image
-    cv2.imshow('MediaPipe Pose', frame)
+    cv2.imshow(window_name, frame)
 
     # Check for window closing event or ESC key
     key = cv2.waitKey(5) & 0xFF
-    if key == 27 or cv2.getWindowProperty('MediaPipe Pose', cv2.WND_PROP_VISIBLE) < 1:
+    if key == 27:  # ESC key
         window_closed = True
-        break
+    elif key == ord('q'):  # Add 'q' key as another way to quit
+        window_closed = True
+    
+    # Try to check if window exists, with error handling for macOS
+    try:
+        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+            window_closed = True
+    except:
+        pass
 
 # Clean up
 cap.release()
