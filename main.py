@@ -21,6 +21,9 @@ else:
 window_closed = False
 window_name = 'MediaPipe Pose'
 
+# Create window with normal flags for proper controls on macOS
+cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+
 while cap.isOpened() and not window_closed:
     ret, frame = cap.read()
     if not ret:
