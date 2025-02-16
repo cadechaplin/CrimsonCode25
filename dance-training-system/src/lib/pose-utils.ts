@@ -113,3 +113,38 @@ export function extractPoseTimestamps(
 ): number[] {
   return poses.map((_, index) => index * (1000 / fps));
 }
+
+// src/lib/pose-utils.ts
+export const savePosesToFile = (poses, sequenceName) => {
+  const data = {
+    name: sequenceName || 'dance_sequence',
+    poses: poses,
+    timestamp: new Date().toISOString()
+  };
+  
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${sequenceName || 'dance_sequence'}_poses.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+export const loadPosesFromFile = async (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        resolve(data.poses);
+      } catch (error) {
+        reject(new Error('Invalid pose file format'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Error reading file'));
+    reader.readAsText(file);
+  });
+};

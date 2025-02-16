@@ -2,168 +2,125 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PlayCircle, PauseCircle, RotateCcw, FastForward } from 'lucide-react';
-import { 
-  SavedPoseSequence,
-  calculatePoseSimilarity,
-  interpolatePoses,
-  POSE_WEIGHTS 
-} from '@/lib/pose-utils';
 
-interface PoseComparisonProps {
-  sequence: SavedPoseSequence;
-  onComplete?: () => void;
-}
-
-const PoseComparison: React.FC<PoseComparisonProps> = ({ sequence, onComplete }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+const PoseComparison = ({ poses }) => {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
   const [currentPoseIndex, setCurrentPoseIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [similarity, setSimilarity] = useState(0);
-  const [interpolatedPose, setInterpolatedPose] = useState(sequence.poses[0]);
-  const [lastFrameTime, setLastFrameTime] = useState(0);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
     let pose;
-    let animationFrame: number;
-    let lastTimestamp = 0;
-    
-    const initializePose = async () => {
-      const { Pose } = await import('@mediapipe/pose');
-      const { drawConnectors, drawLandmarks } = await import('@mediapipe/drawing_utils');
-      const { POSE_CONNECTIONS } = await import('@mediapipe/pose');
-      
-      pose = new Pose({
-        locateFile: (file) => {
-          return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
-        }
-      });
+    let camera;
 
-      pose.setOptions({
-        modelComplexity: 1,
-        smoothLandmarks: true,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
-      });
+    const initializePoseDetection = async () => {
+      try {
+        const { Pose } = await import('@mediapipe/pose');
+        const { Camera } = await import('@mediapipe/camera_utils');
+        const { drawConnectors, drawLandmarks } = await import('@mediapipe/drawing_utils');
+        const { POSE_CONNECTIONS } = await import('@mediapipe/pose');
 
-      pose.onResults((results) => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        pose = new Pose({
+          locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+          }
+        });
 
-        // Clear canvas and draw video frame
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+        pose.setOptions({
+          modelComplexity: 1,
+          smoothLandmarks: true,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
 
-        if (results.poseLandmarks) {
-          // Draw current pose in green
-          drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {
-            color: '#00FF00',
-            lineWidth: 2
-          });
-          drawLandmarks(ctx, results.poseLandmarks, {
-            color: '#FF0000',
-            lineWidth: 1
-          });
+        pose.onResults((results) => {
+          if (!canvasRef.current) return;
+          
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext('2d');
+          
+          // Clear canvas
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          
+          // Draw video frame
+          ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+          
+          if (results.poseLandmarks) {
+            // Draw current pose landmarks
+            drawConnectors(ctx, results.poseLandmarks, POSE_CONNECTIONS, {
+              color: '#00FF00',
+              lineWidth: 2
+            });
+            drawLandmarks(ctx, results.poseLandmarks, {
+              color: '#FF0000',
+              lineWidth: 1
+            });
 
-          // Draw target pose in blue
-          drawConnectors(ctx, interpolatedPose, POSE_CONNECTIONS, {
-            color: 'rgba(0, 0, 255, 0.5)',
-            lineWidth: 2
-          });
-          drawLandmarks(ctx, interpolatedPose, {
-            color: 'rgba(0, 255, 255, 0.5)',
-            lineWidth: 1
-          });
+            // Draw target pose landmarks
+            if (poses[currentPoseIndex]) {
+              drawConnectors(ctx, poses[currentPoseIndex], POSE_CONNECTIONS, {
+                color: 'rgba(0, 0, 255, 0.5)',
+                lineWidth: 2
+              });
+              drawLandmarks(ctx, poses[currentPoseIndex], {
+                color: 'rgba(0, 255, 255, 0.5)',
+                lineWidth: 1
+              });
 
-          // Calculate and update similarity
-          const newSimilarity = calculatePoseSimilarity(
-            results.poseLandmarks,
-            interpolatedPose,
-            POSE_WEIGHTS
-          );
-          setSimilarity(newSimilarity);
-        }
-      });
+              // Calculate similarity
+              const sim = calculatePoseSimilarity(results.poseLandmarks, poses[currentPoseIndex]);
+              setSimilarity(sim);
+            }
+          }
+        });
 
-      const camera = new Camera(videoRef.current!, {
-        onFrame: async () => {
-          await pose.send({ image: videoRef.current! });
-        },
-        width: 640,
-        height: 480
-      });
+        camera = new Camera(videoRef.current, {
+          onFrame: async () => {
+            await pose.send({ image: videoRef.current });
+          },
+          width: 640,
+          height: 480
+        });
 
-      await camera.start();
-    };
+        await camera.start();
+        setIsInitialized(true);
 
-    const updatePose = (timestamp: number) => {
-      if (!isPlaying) return;
-
-      const deltaTime = timestamp - lastTimestamp;
-      const currentTime = lastFrameTime + deltaTime;
-
-      // Find the correct pose indices for interpolation
-      const currentTiming = sequence.timing[currentPoseIndex];
-      const nextTiming = sequence.timing[currentPoseIndex + 1];
-
-      if (currentTime >= nextTiming && currentPoseIndex < sequence.poses.length - 1) {
-        setCurrentPoseIndex(prev => prev + 1);
-        setLastFrameTime(currentTime);
-      } else if (currentTime >= sequence.timing[sequence.poses.length - 1]) {
-        setIsPlaying(false);
-        if (onComplete) onComplete();
-        return;
+      } catch (error) {
+        console.error('Error initializing pose detection:', error);
       }
-
-      // Interpolate between current and next pose
-      const t = (currentTime - currentTiming) / (nextTiming - currentTiming);
-      const interpolated = interpolatePoses(
-        sequence.poses[currentPoseIndex],
-        sequence.poses[currentPoseIndex + 1] || sequence.poses[currentPoseIndex],
-        Math.min(1, t)
-      );
-      setInterpolatedPose(interpolated);
-
-      lastTimestamp = timestamp;
-      animationFrame = requestAnimationFrame(updatePose);
     };
 
-    initializePose();
-
-    if (isPlaying) {
-      lastTimestamp = performance.now();
-      animationFrame = requestAnimationFrame(updatePose);
-    }
+    initializePoseDetection();
 
     return () => {
+      if (camera) camera.stop();
       if (pose) pose.close();
-      if (animationFrame) cancelAnimationFrame(animationFrame);
     };
-  }, [sequence, currentPoseIndex, isPlaying, lastFrameTime, interpolatedPose]);
+  }, [poses, currentPoseIndex]);
 
-  const handlePlayPause = () => {
-    if (!isPlaying) {
-      setLastFrameTime(sequence.timing[currentPoseIndex]);
+  const calculatePoseSimilarity = (currentPose, targetPose) => {
+    let totalDistance = 0;
+    const numLandmarks = currentPose.length;
+    
+    for (let i = 0; i < numLandmarks; i++) {
+      const dx = currentPose[i].x - targetPose[i].x;
+      const dy = currentPose[i].y - targetPose[i].y;
+      const dz = currentPose[i].z - targetPose[i].z;
+      totalDistance += Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
-    setIsPlaying(!isPlaying);
+    
+    // Convert to percentage (lower distance = higher similarity)
+    const similarity = Math.max(0, 100 - (totalDistance / numLandmarks) * 100);
+    return Math.min(similarity, 100);
   };
 
-  const handleReset = () => {
-    setCurrentPoseIndex(0);
-    setLastFrameTime(0);
-    setIsPlaying(false);
-    setInterpolatedPose(sequence.poses[0]);
+  const handlePrevPose = () => {
+    setCurrentPoseIndex(prev => Math.max(0, prev - 1));
   };
 
-  const handleSkipForward = () => {
-    if (currentPoseIndex < sequence.poses.length - 1) {
-      setCurrentPoseIndex(prev => prev + 1);
-      setLastFrameTime(sequence.timing[currentPoseIndex + 1]);
-    }
+  const handleNextPose = () => {
+    setCurrentPoseIndex(prev => Math.min(poses.length - 1, prev + 1));
   };
 
   return (
@@ -173,15 +130,15 @@ const PoseComparison: React.FC<PoseComparisonProps> = ({ sequence, onComplete })
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          <div className="relative">
+          <div className="relative rounded-lg overflow-hidden bg-gray-100 aspect-video">
             <video
               ref={videoRef}
-              className="w-full h-[480px] hidden"
+              className="absolute inset-0 w-full h-full"
               playsInline
             />
             <canvas
               ref={canvasRef}
-              className="w-full h-[480px]"
+              className="absolute inset-0 w-full h-full"
               width={640}
               height={480}
             />
@@ -190,32 +147,26 @@ const PoseComparison: React.FC<PoseComparisonProps> = ({ sequence, onComplete })
             </div>
           </div>
 
-          <div className="flex justify-center space-x-4">
-            <Button onClick={handleReset}>
-              <RotateCcw className="w-4 h-4 mr-2" />
-              Reset
+          <div className="flex justify-between items-center">
+            <Button
+              onClick={handlePrevPose}
+              disabled={currentPoseIndex === 0}
+            >
+              Previous
             </Button>
-            <Button onClick={handlePlayPause}>
-              {isPlaying ? (
-                <PauseCircle className="w-4 h-4 mr-2" />
-              ) : (
-                <PlayCircle className="w-4 h-4 mr-2" />
-              )}
-              {isPlaying ? 'Pause' : 'Play'}
-            </Button>
-            <Button onClick={handleSkipForward}>
-              <FastForward className="w-4 h-4 mr-2" />
-              Skip
-            </Button>
-          </div>
 
-          <div className="text-center">
-            <p className="text-sm text-gray-600">
-              Pose {currentPoseIndex + 1} of {sequence.poses.length}
-            </p>
-            <p className="text-xs text-gray-500">
-              Time: {(lastFrameTime / 1000).toFixed(1)}s
-            </p>
+            <div className="text-center">
+              <span className="text-lg font-semibold">
+                Pose {currentPoseIndex + 1} of {poses.length}
+              </span>
+            </div>
+
+            <Button
+              onClick={handleNextPose}
+              disabled={currentPoseIndex === poses.length - 1}
+            >
+              Next
+            </Button>
           </div>
         </div>
       </CardContent>

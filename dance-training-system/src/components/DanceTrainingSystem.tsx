@@ -1,6 +1,5 @@
 // src/components/DanceTrainingSystem.tsx
 import React, { useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
 import VideoPoseProcessor from './VideoPoseProcessor';
 import PoseComparison from './PoseComparison';
 
@@ -9,8 +8,11 @@ export const DanceTrainingSystem = () => {
   const [currentMode, setCurrentMode] = useState('extract'); // 'extract' or 'practice'
 
   const handlePosesExtracted = (extractedPoses) => {
+    console.log('Received poses:', extractedPoses);
     setPoses(extractedPoses);
-    setCurrentMode('practice');
+    if (extractedPoses.length > 0) {
+      setCurrentMode('practice');
+    }
   };
 
   return (

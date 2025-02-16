@@ -2,166 +2,201 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Upload, Save, FileUp } from 'lucide-react';
-import { 
-  SavedPoseSequence,
-  savePoseSequence,
-  loadPoseSequence,
-  extractPoseTimestamps 
-} from '@/lib/pose-utils';
 
-interface VideoPoseProcessorProps {
-  onPosesExtracted: (poses: SavedPoseSequence) => void;
-}
-
-const VideoPoseProcessor: React.FC<VideoPoseProcessorProps> = ({ onPosesExtracted }) => {
+const VideoPoseProcessor = ({ onPosesExtracted }) => {
   const [processingStatus, setProcessingStatus] = useState('');
-  const [videoFiles, setVideoFiles] = useState<File[]>([]);
-  const [extractedSequence, setExtractedSequence] = useState<SavedPoseSequence | null>(null);
   const [sequenceName, setSequenceName] = useState('');
-  
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState({ percent: 0, frame: 0, totalFrames: 0 });
+  const [detailedStatus, setDetailedStatus] = useState([]);
+  const [extractedPoses, setExtractedPoses] = useState([]);
+  const poseRef = useRef(null);
+
+  const addStatus = (status) => {
+    setDetailedStatus(prev => [...prev, { time: new Date().toLocaleTimeString(), message: status }]);
+  };
+
   useEffect(() => {
-    let pose;
-    
     const initializePose = async () => {
+      addStatus('Initializing pose detection...');
       const { Pose } = await import('@mediapipe/pose');
-      pose = new Pose({
+      poseRef.current = new Pose({
         locateFile: (file) => {
           return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
         }
       });
 
-      pose.setOptions({
+      poseRef.current.setOptions({
         modelComplexity: 1,
         smoothLandmarks: true,
         minDetectionConfidence: 0.5,
         minTrackingConfidence: 0.5
       });
+      addStatus('Pose detection initialized');
     };
 
     initializePose();
-    return () => {
-      if (pose) pose.close();
-    };
   }, []);
 
-  const processVideo = async (videoFile: File) => {
-    return new Promise<{ poses: any[], fps: number }>((resolve, reject) => {
+  const processVideo = async (videoFile) => {
+    return new Promise((resolve, reject) => {
+      if (!poseRef.current) {
+        reject(new Error('Pose detection not initialized'));
+        return;
+      }
+
       const video = document.createElement('video');
       video.src = URL.createObjectURL(videoFile);
       video.muted = true;
       
-      const poses: any[] = [];
-      let frameCount = 0;
+      const poses = [];
       
       video.onloadedmetadata = () => {
+        const duration = video.duration;
         const fps = 30;
-        const interval = 1000 / fps;
-        video.currentTime = 0;
+        const totalFrames = Math.floor(duration * fps);
+        setProgress({ percent: 0, frame: 0, totalFrames });
+        addStatus(`Video loaded: ${duration.toFixed(1)} seconds, ${totalFrames} frames to process`);
+        
+        const frameInterval = 1000 / fps;
+        let currentFrame = 0;
         
         const processFrame = async () => {
-          if (video.currentTime < video.duration) {
+          if (currentFrame < totalFrames) {
+            video.currentTime = currentFrame / fps;
+            
             try {
+              await new Promise(resolve => setTimeout(resolve, 10));
+              
               const canvas = document.createElement('canvas');
               canvas.width = video.videoWidth;
               canvas.height = video.videoHeight;
               const ctx = canvas.getContext('2d');
-              ctx?.drawImage(video, 0, 0);
+              ctx.drawImage(video, 0, 0);
+
+              await new Promise((resolve) => {
+                poseRef.current.onResults((results) => {
+                  if (results.poseLandmarks) {
+                    poses.push([...results.poseLandmarks]);
+                  }
+                  resolve();
+                });
+                
+                poseRef.current.send({ image: canvas });
+              });
               
-              const results = await pose.send({ image: canvas });
-              if (results.poseLandmarks) {
-                poses.push([...results.poseLandmarks]);
+              currentFrame++;
+              const percent = (currentFrame / totalFrames) * 100;
+              setProgress({ 
+                percent, 
+                frame: currentFrame, 
+                totalFrames 
+              });
+
+              if (currentFrame % 30 === 0) {
+                addStatus(`Processed frame ${currentFrame}/${totalFrames} (${percent.toFixed(1)}%)`);
               }
               
-              frameCount++;
-              video.currentTime += interval / 1000;
+              requestAnimationFrame(processFrame);
             } catch (error) {
-              console.error('Error processing frame:', error);
+              addStatus(`Error processing frame ${currentFrame}: ${error.message}`);
               reject(error);
             }
           } else {
+            addStatus(`Processing complete. Extracted ${poses.length} poses`);
             URL.revokeObjectURL(video.src);
-            resolve({ poses, fps });
+            resolve(poses);
           }
         };
         
-        const processNextFrame = () => {
-          if (video.currentTime < video.duration) {
-            processFrame().then(() => {
-              requestAnimationFrame(processNextFrame);
-            });
-          }
-        };
-        
-        processNextFrame();
+        processFrame();
       };
       
       video.onerror = (error) => {
+        addStatus(`Error loading video: ${error}`);
         URL.revokeObjectURL(video.src);
         reject(error);
       };
     });
   };
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (event) => {
     const files = Array.from(event.target.files || []);
-    setVideoFiles(files);
-    setProcessingStatus('Starting video processing...');
-    
-    const allPoses: any[] = [];
-    let fps = 30;
-    
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setProcessingStatus(`Processing video ${i + 1} of ${files.length}: ${file.name}`);
-      
-      try {
-        const result = await processVideo(file);
-        allPoses.push(...result.poses);
-        fps = result.fps;
-        setProcessingStatus(`Completed processing ${file.name}. Extracted ${result.poses.length} poses.`);
-      } catch (error) {
-        setProcessingStatus(`Error processing ${file.name}: ${error.message}`);
-      }
-    }
-    
-    const sequence: SavedPoseSequence = {
-      name: sequenceName || 'Untitled Sequence',
-      poses: allPoses,
-      timing: extractPoseTimestamps(allPoses, fps),
-      metadata: {
-        created: new Date().toISOString(),
-        videoSource: files.map(f => f.name).join(', '),
-        fps
-      }
-    };
-    
-    setExtractedSequence(sequence);
-    setProcessingStatus(`Completed processing all videos. Total poses extracted: ${allPoses.length}`);
-  };
+    if (files.length === 0) return;
 
-  const handleLoadSequence = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    
+    setIsProcessing(true);
+    setDetailedStatus([]);
+    addStatus(`Starting to process ${files.length} video(s)`);
+
     try {
-      const sequence = await loadPoseSequence(file);
-      setExtractedSequence(sequence);
-      setSequenceName(sequence.name);
-      onPosesExtracted(sequence);
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        addStatus(`Processing video ${i + 1}/${files.length}: ${file.name}`);
+        const poses = await processVideo(file);
+        setExtractedPoses(poses);
+        onPosesExtracted(poses);
+      }
     } catch (error) {
-      setProcessingStatus(`Error loading sequence: ${error.message}`);
+      addStatus(`Error: ${error.message}`);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handleSaveSequence = () => {
-    if (!extractedSequence) return;
-    savePoseSequence(extractedSequence);
+    if (extractedPoses.length === 0) {
+      addStatus('No poses to save. Process a video first.');
+      return;
+    }
+
+    const sequenceData = {
+      name: sequenceName || 'unnamed_sequence',
+      poses: extractedPoses,
+      metadata: {
+        timestamp: new Date().toISOString(),
+        totalPoses: extractedPoses.length
+      }
+    };
+
+    const blob = new Blob([JSON.stringify(sequenceData)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${sequenceData.name}_poses.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    addStatus(`Saved ${extractedPoses.length} poses to ${sequenceData.name}_poses.json`);
   };
 
-  const handleStartPractice = () => {
-    if (extractedSequence) {
-      onPosesExtracted(extractedSequence);
+  const handleLoadSequence = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      addStatus('Loading saved sequence...');
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          setExtractedPoses(data.poses);
+          onPosesExtracted(data.poses);
+          setSequenceName(data.name);
+          addStatus(`Loaded ${data.poses.length} poses from ${file.name}`);
+        } catch (error) {
+          addStatus(`Error parsing file: ${error.message}`);
+        }
+      };
+
+      reader.onerror = () => {
+        addStatus('Error reading file');
+      };
+
+      reader.readAsText(file);
+    } catch (error) {
+      addStatus(`Error loading file: ${error.message}`);
     }
   };
 
@@ -172,74 +207,87 @@ const VideoPoseProcessor: React.FC<VideoPoseProcessorProps> = ({ onPosesExtracte
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          <div className="flex gap-4 mb-4">
+          <div className="flex gap-4 items-center">
             <input
               type="text"
               placeholder="Sequence Name"
-              className="px-4 py-2 border rounded"
+              className="flex-1 px-4 py-2 border rounded"
               value={sequenceName}
               onChange={(e) => setSequenceName(e.target.value)}
             />
-            <Button onClick={handleSaveSequence} disabled={!extractedSequence}>
-              <Save className="w-4 h-4 mr-2" />
+            
+            <Button
+              onClick={handleSaveSequence}
+              disabled={extractedPoses.length === 0 || isProcessing}
+              className="bg-green-500 hover:bg-green-600"
+            >
               Save Sequence
             </Button>
+
             <div className="relative">
-              <Button variant="outline">
-                <FileUp className="w-4 h-4 mr-2" />
+              <Button
+                variant="outline"
+                className="relative"
+                disabled={isProcessing}
+              >
                 Load Sequence
+                <input
+                  type="file"
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                  accept=".json"
+                  onChange={handleLoadSequence}
+                  disabled={isProcessing}
+                />
               </Button>
-              <input
-                type="file"
-                className="absolute inset-0 opacity-0 cursor-pointer"
-                accept=".json"
-                onChange={handleLoadSequence}
-              />
             </div>
           </div>
 
-          <div className="flex items-center justify-center w-full">
-            <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-              <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                <Upload className="w-10 h-10 mb-3 text-gray-400" />
-                <p className="mb-2 text-sm text-gray-500">
-                  <span className="font-semibold">Click to upload</span> or drag and drop
-                </p>
-                <p className="text-xs text-gray-500">
-                  MP4, WebM, or other video files
-                </p>
-              </div>
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
+            <div className="text-center">
               <input
                 type="file"
+                id="video-upload"
                 className="hidden"
                 multiple
                 accept="video/*"
                 onChange={handleFileSelect}
+                disabled={isProcessing}
               />
-            </label>
+              <label
+                htmlFor="video-upload"
+                className="cursor-pointer bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 inline-block"
+              >
+                {isProcessing ? 'Processing...' : 'Choose Files'}
+              </label>
+              <p className="mt-2 text-gray-600">
+                MP4, WebM, or other video files
+              </p>
+            </div>
           </div>
-          
-          {processingStatus && (
-            <div className="mt-4 p-4 bg-gray-100 rounded">
-              <p className="text-sm text-gray-700">{processingStatus}</p>
-            </div>
-          )}
-          
-          {extractedSequence && (
-            <div className="mt-4 flex justify-between items-center">
-              <div>
-                <h3 className="text-lg font-semibold">
-                  Extracted {extractedSequence.poses.length} poses
-                </h3>
-                <p className="text-sm text-gray-600">
-                  Sequence is ready for practice
-                </p>
+
+          {isProcessing && progress.totalFrames > 0 && (
+            <div className="space-y-2">
+              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                <div 
+                  className="bg-blue-500 h-full transition-all duration-300"
+                  style={{ width: `${progress.percent}%` }}
+                />
               </div>
-              <Button onClick={handleStartPractice}>
-                Start Practice
-              </Button>
+              <p className="text-sm text-center text-gray-600">
+                Processing frame {progress.frame} of {progress.totalFrames} 
+                ({progress.percent.toFixed(1)}%)
+              </p>
             </div>
           )}
+
+          <div className="mt-4 space-y-2 max-h-40 overflow-y-auto bg-gray-50 rounded p-2">
+            {detailedStatus.map((status, index) => (
+              <div key={index} className="text-sm">
+                <span className="text-gray-500">{status.time}:</span>{' '}
+                <span className="text-gray-700">{status.message}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </CardContent>
     </Card>
