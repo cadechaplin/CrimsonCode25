@@ -1,30 +1,68 @@
-import React, { useState, useEffect } from 'react';
-import { Camera, Play, Pause, Share2, Award, Search } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { Camera, Play, Pause, Share2, Award, Search } from "lucide-react";
 
 const DanceTrainingApp2 = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [selectedDance, setSelectedDance] = useState(null);
   const [score, setScore] = useState(null);
   const [error, setError] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [difficultyFilter, setDifficultyFilter] = useState('all');
-  const [serverStatus, setServerStatus] = useState('checking');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [difficultyFilter, setDifficultyFilter] = useState("all");
+  const [serverStatus, setServerStatus] = useState("checking");
 
   const dances = [
-    { id: 1, name: 'The Griddy', difficulty: 'Medium', duration: '30 seconds', style: 'Hip Hop' },
-    { id: 2, name: 'Macarena', difficulty: 'Easy', duration: '45 seconds', style: 'Party' },
-    { id: 3, name: 'Robot Dance', difficulty: 'Hard', duration: '20 seconds', style: 'Freestyle' },
-    { id: 4, name: 'Moonwalk', difficulty: 'Hard', duration: '25 seconds', style: 'Pop' },
-    { id: 5, name: 'Floss Dance', difficulty: 'Medium', duration: '15 seconds', style: 'Gaming' },
-    { id: 6, name: 'Shuffle', difficulty: 'Medium', duration: '40 seconds', style: 'EDM' }
+    {
+      id: 1,
+      name: "The Griddy",
+      difficulty: "Medium",
+      duration: "30 seconds",
+      style: "Hip Hop",
+    },
+    {
+      id: 2,
+      name: "Macarena",
+      difficulty: "Easy",
+      duration: "45 seconds",
+      style: "Party",
+    },
+    {
+      id: 3,
+      name: "Robot Dance",
+      difficulty: "Hard",
+      duration: "20 seconds",
+      style: "Freestyle",
+    },
+    {
+      id: 4,
+      name: "Moonwalk",
+      difficulty: "Hard",
+      duration: "25 seconds",
+      style: "Pop",
+    },
+    {
+      id: 5,
+      name: "Floss Dance",
+      difficulty: "Medium",
+      duration: "15 seconds",
+      style: "Gaming",
+    },
+    {
+      id: 6,
+      name: "Shuffle",
+      difficulty: "Medium",
+      duration: "40 seconds",
+      style: "EDM",
+    },
   ];
 
-  const difficulties = ['Easy', 'Medium', 'Hard'];
+  const difficulties = ["Easy", "Medium", "Hard"];
 
-  const filteredDances = dances.filter(dance => {
-    const matchesSearch = dance.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         dance.style.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesDifficulty = difficultyFilter === 'all' || dance.difficulty === difficultyFilter;
+  const filteredDances = dances.filter((dance) => {
+    const matchesSearch =
+      dance.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      dance.style.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesDifficulty =
+      difficultyFilter === "all" || dance.difficulty === difficultyFilter;
     return matchesSearch && matchesDifficulty;
   });
 
@@ -35,50 +73,55 @@ const DanceTrainingApp2 = () => {
 
   const checkServerHealth = async () => {
     try {
-      const response = await fetch('http://localhost:5000/health');
+      const response = await fetch("http://localhost:3001/health");
       if (response.ok) {
-        setServerStatus('connected');
+        setServerStatus("connected");
         setError(null);
       } else {
-        setServerStatus('error');
-        setError('Server is not responding properly');
+        setServerStatus("error");
+        setError("Server is not responding properly");
       }
     } catch (err) {
-      setServerStatus('error');
-      setError('Cannot connect to server. Please ensure the Python backend is running.');
+      setServerStatus("error");
+      setError(
+        "Cannot connect to server. Please ensure the Python backend is running."
+      );
     }
   };
 
   const toggleRecording = async () => {
     if (!isRecording) {
       try {
-        const response = await fetch(`http://localhost:5000/start_dance/${selectedDance.id}`, {
-          method: 'POST'
-        });
+        const response = await fetch(
+          `http://localhost:3001/start_dance/${selectedDance.id}`,
+          {
+            method: "POST",
+          }
+        );
         if (response.ok) {
           setIsRecording(true);
           setScore(null);
           setError(null);
         } else {
-          throw new Error('Failed to start recording');
+          throw new Error("Failed to start recording");
         }
       } catch (err) {
-        setError('Failed to start recording. Please check server connection.');
+        setError("Failed to start recording. Please check server connection.");
       }
     } else {
       try {
-        const response = await fetch('http://localhost:5000/stop_dance', {
-          method: 'POST'
+        const response = await fetch("http://localhost:3001/stop_dance", {
+          method: "POST",
         });
         if (response.ok) {
           const data = await response.json();
           setScore(data.score);
           setIsRecording(false);
         } else {
-          throw new Error('Failed to stop recording');
+          throw new Error("Failed to stop recording");
         }
       } catch (err) {
-        setError('Failed to stop recording. Please check server connection.');
+        setError("Failed to stop recording. Please check server connection.");
         setIsRecording(false);
       }
     }
@@ -87,10 +130,12 @@ const DanceTrainingApp2 = () => {
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold text-center mb-8">Dance Training App</h1>
-        
+        <h1 className="text-4xl font-bold text-center mb-8">
+          Dance Training App
+        </h1>
+
         {/* Server Status */}
-        {serverStatus === 'error' && (
+        {serverStatus === "error" && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
             <p>{error}</p>
           </div>
@@ -109,9 +154,9 @@ const DanceTrainingApp2 = () => {
         {/* Camera Feed */}
         <div className="mb-8">
           <div className="relative aspect-video bg-black rounded-lg overflow-hidden shadow">
-            {serverStatus === 'connected' ? (
-              <img 
-                src="http://localhost:5000/video_feed" 
+            {serverStatus === "connected" ? (
+              <img
+                src="http://localhost:3001/video_feed"
                 className="w-full h-full object-cover"
                 alt="Camera feed"
               />
@@ -127,11 +172,11 @@ const DanceTrainingApp2 = () => {
         <div className="flex justify-center gap-4 mb-8">
           <button
             onClick={toggleRecording}
-            disabled={!selectedDance || serverStatus !== 'connected'}
+            disabled={!selectedDance || serverStatus !== "connected"}
             className={`px-6 py-3 rounded-full flex items-center gap-2 shadow transition-all duration-200 ${
-              !selectedDance || serverStatus !== 'connected'
-                ? 'bg-gray-300 cursor-not-allowed opacity-50'
-                : 'bg-blue-500 hover:bg-blue-600 text-white'
+              !selectedDance || serverStatus !== "connected"
+                ? "bg-gray-300 cursor-not-allowed opacity-50"
+                : "bg-blue-500 hover:bg-blue-600 text-white"
             }`}
           >
             {isRecording ? (
@@ -164,9 +209,7 @@ const DanceTrainingApp2 = () => {
                 ? "Good effort! You're getting there!"
                 : "Nice try! Practice makes perfect!"}
             </p>
-            <button 
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200"
-            >
+            <button className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200">
               <Share2 className="w-4 h-4" />
               <span>Share Result</span>
             </button>
