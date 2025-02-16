@@ -38,6 +38,9 @@ class PoseDetector:
         return 0
 
     def get_frame(self):
+        if not self.is_capturing:
+            return None
+            
         if self.cap is None or not self.cap.isOpened():
             self.initialize_camera()
             
@@ -82,22 +85,25 @@ def video_feed():
     return Response(generate_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
-@app.route('/start_dance/<dance_id>', methods=['POST'])
-def start_dance(dance_id):
-    detector.current_dance = dance_id
-    detector.is_capturing = True
-    detector.scores = []
-    return jsonify({"status": "started"})
-
 @app.route('/stop_dance', methods=['POST'])
 def stop_dance():
     detector.is_capturing = False
+    detector.release_camera()  # Add this line to release the camera
     final_score = int(np.mean(detector.scores)) if detector.scores else 0
     detector.scores = []
     return jsonify({
         "status": "stopped",
         "score": final_score
     })
+
+@app.route('/start_dance/<dance_id>', methods=['POST'])
+def start_dance(dance_id):
+    detector.initialize_camera()  # Add this line to ensure camera is initialized
+    detector.current_dance = dance_id
+    detector.is_capturing = True
+    detector.scores = []
+    return jsonify({"status": "started"})
+
 
 @app.route('/health')
 def health():

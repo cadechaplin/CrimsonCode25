@@ -61,20 +61,45 @@ const DanceTrainingApp = () => {
     setIsRecording(false);
   };
 
-  const toggleRecording = () => {
+  const toggleRecording = async () => {
     if (!isRecording) {
-      startCamera();
-      setIsRecording(true);
-      setTimeout(() => {
-        const randomScore = Math.floor(Math.random() * 41) + 60;
-        setScore(randomScore);
-      }, 5000);
+      try {
+        // Start the camera and recording
+        await startCamera();
+        const response = await fetch('http://localhost:5000/start_dance/${selectedDance.id}', {
+          method: 'POST'
+        });
+        if (response.ok) {
+          setIsRecording(true);
+          setTimeout(() => {
+            const randomScore = Math.floor(Math.random() * 41) + 60;
+            setScore(randomScore);
+          }, 5000);
+        }
+      } catch (error) {
+        console.error('Error starting recording:', error);
+        setCameraError('Failed to start recording');
+      }
     } else {
-      stopCamera();
-      setIsRecording(false);
+      try {
+        // Stop the camera and recording
+        const response = await fetch('http://localhost:5000/stop_dance', {
+          method: 'POST'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setScore(data.score);
+        }
+        stopCamera();
+        setIsRecording(false);
+      } catch (error) {
+        console.error('Error stopping recording:', error);
+        setCameraError('Failed to stop recording');
+      }
     }
   };
 
+  
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-4xl mx-auto">
